@@ -1,0 +1,17 @@
+{
+  "name": "astra-tiny-gods",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --base=./",
+    "simulate": "node tools/simulate.js",
+    "test": "node --test tools/game.test.js"
+  },
+  "dependencies": {
+    "howler": "^2.2.4",
+    "peerjs": "^1.5.5",
+    "pixi.js": "^8.22.0",
+    "vite": "^8.3.5"
+  }
+}
