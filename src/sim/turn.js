@@ -26,7 +26,7 @@ function hit(w, a, b, near) {
     event(
       w,
       a,
-      `${a.name} fires into the air of Littleborough!`,
+      `${a.name} (${factions[a.faction]}) fires at ${b.name} (${factions[b.faction]}). The shot can scare nearby villagers into running.`,
       5,
       a.drivers[b.faction] ?? null,
       "shot",
@@ -118,8 +118,9 @@ function think(w, v) {
       (b) => b.traits.includes("Sheriff") && distance(v, b) < 75,
     );
   let choice = { score: 2, state: "wander", thought: "" };
-  function offer(score, state, thought, b, flee = false) {
-    if (score > choice.score) choice = { score, state, thought, b, flee };
+  function offer(score, state, thought, b, flee = false, reason = "") {
+    if (score > choice.score)
+      choice = { score, state, thought, b, flee, reason };
   }
   for (const a of v.fx) {
     let place = places.find((p) => p[0] === a.target),
@@ -130,20 +131,37 @@ function think(w, v) {
             .sort((a, b) => distance(v, a) - distance(v, b))[0];
     if (a.verb === "Arm up" && v.weapon === "none" && w.armory) {
       const [, x, y] = places[5];
-      offer(30, "seek", "⚒", { x, y });
+      offer(
+        30,
+        "seek",
+        "⚒",
+        { x, y, place: "Armory" },
+        false,
+        "seeking a weapon",
+      );
       if (distance(v, { x, y }) < 30) {
         w.armory--;
         v.weapon = pick(w.r, ["bat", "knife"]);
       }
     }
     if (!b) continue;
-    if (a.verb === "Follow") offer(15, "seek", "⚑", b);
+    if (place) {
+      // Give arrivals separate standing spots so the whole faction stays visible.
+      const angle = v.id * 2.4,
+        radius = 13 + (v.id % 3) * 9;
+      b = {
+        x: b.x + Math.cos(angle) * radius,
+        y: b.y + Math.sin(angle) * radius,
+        place: a.target,
+      };
+    }
+    if (a.verb === "Follow") offer(15, "seek", "⚑", b, false, "rallying");
     if (a.verb === "Protect") {
-      offer(21, "protect", "◇", b);
+      offer(21, "protect", "◇", b, false, "standing guard");
       v.guardId = b.id;
     }
     if (a.verb === "Avoid" && distance(v, b) < T.avoid)
-      offer(49, "flee", "!", b, true);
+      offer(49, "flee", "!", b, true, "keeping away");
   }
   for (const b of near) {
     const d = distance(v, b),
@@ -151,9 +169,9 @@ function think(w, v) {
       fear = v.fear[b.faction],
       retaliate = v.lastHit === b.faction && w.time - v.hitTime < 3;
     if (d > T.panic) continue;
-    if (v.panic > 0) offer(99, "flee", "!", b, true);
+    if (v.panic > 0) offer(99, "flee", "!", b, true, "startled by gunfire");
     if (fear > 20 && d < 100)
-      offer(fear * 0.58 - v.courage * 0.12, "flee", "!", b, true);
+      offer(fear * 0.58 - v.courage * 0.12, "flee", "!", b, true, "afraid");
     if (
       (o < T.hostility || retaliate) &&
       !v.traits.includes("Medic") &&
@@ -164,12 +182,22 @@ function think(w, v) {
       ) &&
       v.agg + w.r() * 30 - (sheriff ? 32 : 0) > v.courage * 0.6
     )
-      offer(51 + Math.max(-o, 0) * 0.2 - d * 0.08, "attack", "!", b);
+      offer(
+        51 + Math.max(-o, 0) * 0.2 - d * 0.08,
+        "attack",
+        "!",
+        b,
+        false,
+        retaliate ? "fighting back" : "hostile",
+      );
     if (o > 35 && d < 38)
       offer(8 + w.r() * 5, "hug", fear > 25 ? "♥?" : "♥", b);
     else if (d < 27) offer(5 + w.r() * 3, "socialize", "♫", b);
   }
   let b = choice.b;
+  v.actionTarget = b?.id ?? null;
+  v.actionPlace = b?.place ?? null;
+  v.reason = choice.reason || "";
   if (!b) {
     if (v.state !== "wander" && v.state !== "socialize") wander(w, v);
     peaceful(w, v);
@@ -177,6 +205,23 @@ function think(w, v) {
   }
   v.state = choice.state;
   v.thought = choice.thought;
+  if (choice.reason === "rallying" && distance(v, b) < 15) {
+    const key = "rally-" + v.faction + "-" + b.place;
+    if (!w.reportedScenes.has(key)) {
+      w.reportedScenes.add(key);
+      const order = v.fx.find(
+        (a) => a.verb === "Follow" && a.target === b.place,
+      );
+      event(
+        w,
+        v,
+        `${v.name} (${factions[v.faction]}) takes up position at the ${b.place}.`,
+        5,
+        order?.seat ?? null,
+        "arrival",
+      );
+    }
+  }
   if (choice.flee) {
     v.dx = clamp(v.x + (v.x - b.x), 15, T.width - 15);
     v.dy = clamp(v.y + (v.y - b.y), 20, T.height - 15);
@@ -242,7 +287,19 @@ export function finish(w) {
         );
       }
     }
-  w.highlights = [...w.events].sort((a, b) => b.score - a.score).slice(0, 3);
+  const ranked = [...w.events].sort((a, b) => b.score - a.score);
+  const kinds = new Set();
+  w.highlights = [];
+  for (const e of ranked) {
+    if (kinds.has(e.type)) continue;
+    kinds.add(e.type);
+    w.highlights.push(e);
+    if (w.highlights.length === 3) break;
+  }
+  for (const e of ranked) {
+    if (w.highlights.length >= 3) break;
+    if (!w.highlights.includes(e)) w.highlights.push(e);
+  }
   if (!w.highlights.length)
     w.highlights = [
       {

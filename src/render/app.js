@@ -1,5 +1,5 @@
 import { Application, Graphics, Container, Text } from "pixi.js";
-import { colors, factions, symbols, T } from "../config/tunables.js";
+import { colors, factions, symbols, places, T } from "../config/tunables.js";
 import { drawMap } from "./map.js";
 const ink = "#373d34";
 function body(g, v) {
@@ -87,6 +87,17 @@ export async function renderer(select) {
     lines = new Graphics(),
     effects = new Graphics();
   app.stage.addChild(lines, layer, effects);
+  const tag = new Text({
+    text: "",
+    style: {
+      fontSize: 15,
+      fontWeight: "bold",
+      fill: "#fff7df",
+      stroke: { color: "#21392d", width: 5 },
+    },
+  });
+  tag.anchor.set(0.5, 1);
+  app.stage.addChild(tag);
   const particles = Array.from({ length: 72 }, () => ({ life: 0 }));
   let slot = 0;
   function burst(v, color, count) {
@@ -123,7 +134,7 @@ export async function renderer(select) {
     focus(e) {
       focus = e ? { ...e, until: performance.now() + 1800 } : null;
     },
-    draw(list, dt) {
+    draw(list, dt, watchId = null) {
       const active = focus && performance.now() < focus.until;
       for (const surface of el.children) {
         surface.style.transformOrigin = active
@@ -133,6 +144,30 @@ export async function renderer(select) {
       }
       lines.clear();
       effects.clear();
+      const actor = list[watchId];
+      tag.visible = !!actor;
+      if (actor) {
+        const target = list[actor.actionTarget],
+          place = places.find((p) => p[0] === actor.actionPlace);
+        const dest = target || (place && { x: place[1], y: place[2] });
+        const accent = actor.state === "attack" ? "#a9402e" : "#284b3a";
+        lines
+          .circle(actor.x, actor.y, 16)
+          .stroke({ width: 4, color: "#fff6da" });
+        lines.circle(actor.x, actor.y, 18).stroke({ width: 2, color: accent });
+        tag.text = actor.name;
+        tag.position.set(
+          Math.max(72, Math.min(T.width - 72, actor.x)),
+          Math.max(28, actor.y - 19),
+        );
+        if (dest && actor.hp) {
+          lines
+            .moveTo(actor.x, actor.y)
+            .lineTo(dest.x, dest.y)
+            .stroke({ width: 2, color: accent, alpha: 0.75 });
+          lines.circle(dest.x, dest.y, 11).stroke({ width: 2, color: accent });
+        }
+      }
       const now = performance.now() / 1000;
       for (const v of list) {
         let n = nodes[v.id];

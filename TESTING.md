@@ -14,8 +14,10 @@ Run `npm test`, `npm run build`, and `npm run simulate -- --matches 1000 --bots 
 
 ## Seeded balance run
 
-1,000 mixed-personality matches starting at seed 1 averaged 7.856 turns. Seat win rates were 23.7%, 24.5%, 25.8%, and 26.0%. A faction was wiped out before turn three in 5% of matches. The first kill averaged turn 1.369. Matches decided by turn three accounted for 0.9%. The first victim’s faction won 3.854% of eligible matches. The mean peak living-count gap was 11.792 villagers.
+1,000 mixed-personality matches starting at seed 1 averaged 7.785 turns. Seat win rates were 24.4%, 25.4%, 26.0%, and 24.2%. A faction was wiped out before turn three in 5.3% of matches. The first kill averaged turn 1.346. Matches decided by turn three accounted for 1.3%. The first victim’s faction won 3.633% of eligible matches. The mean peak living-count gap was 11.855 villagers.
 
-Mean deaths by turn, counting only matches that reached the turn, were 1.215, 7.841, 16.840, 8.367, 3.590, 2.272, 2.800, 2.245 and 1.206.
+Mean deaths by turn, counting only matches that reached the turn, were 1.238, 7.780, 16.730, 8.354, 3.880, 2.576, 2.943, 2.232 and 1.302.
 
 Browser checks covered a full solo match and rematch, two local hotseat submissions, and a full host/guest match across two Chrome tabs using public signaling. A 390 px viewport had no horizontal overflow. Different-network play and target-laptop FPS still need owner-device checks.
+
+The field-camera playtest followed a named villager to the Well, switched observers, saw arrivals counted during the turn, and verified 12 distinct arrivals in the recap. A regression test checks that a rival cannot see this private tally.

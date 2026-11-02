@@ -14,6 +14,7 @@ import { targets } from "./sim/orders.js";
 import { Game, blank } from "./game.js";
 import { room, code5 } from "./net/rooms.js";
 import { toggle, mix, cue } from "./audio.js";
+import { preview, scene } from "./field-report.js";
 const $ = (s) => document.querySelector(s),
   panel = $("#panel"),
   status = $("#status"),
@@ -68,6 +69,70 @@ let demo = world(seed()),
   replay = null,
   filmCache = null,
   publishClock = 0;
+let watchId = null;
+function track(v) {
+  watchId = v?.id ?? null;
+}
+function reportHTML(s) {
+  if (mode === "hotseat")
+    return "<p>Public town view · private orders stay sealed.</p>";
+  const items = s.report.map(
+    (r) =>
+      `<li><b>${text(r.order.verb)} ${r.order.target === "none" ? "" : text(r.order.target)}</b><span>${r.count} ${r.count === 1 ? "villager" : "villagers"} ${text(r.outcome)}</span></li>`,
+  );
+  if (s.whisper)
+    items.push(
+      `<li><b>${text(s.whisper.verb)} whisper</b><span>${s.whisper.believed} believed it this turn</span></li>`,
+    );
+  return items.length
+    ? `<ul class="results">${items.join("")}</ul>`
+    : "<p>You issued no orders this turn.</p>";
+}
+function updateWatch(s) {
+  const dispatch = $("#dispatch");
+  const sim = s.phase === "Simulation";
+  dispatch.hidden = !sim;
+  if (!sim) return;
+  const own = s.people.filter((v) => v.hp && v.faction === s.seat);
+  const cast = own.length ? own : s.people.filter((v) => v.hp);
+  let v = s.people[watchId];
+  if (!v?.hp) {
+    v = cast.find((p) => p.actionPlace || p.state === "attack") || cast[0];
+    track(v);
+  }
+  const place =
+    v &&
+    places.reduce((a, b) =>
+      Math.hypot(v.x - a[1], v.y - a[2]) < Math.hypot(v.x - b[1], v.y - b[2])
+        ? a
+        : b,
+    );
+  if (!$("#watchLine")) {
+    dispatch.innerHTML =
+      '<div><small id="watchLoc"></small><strong id="watchLine"></strong></div><button id="switchWatch">Next villager</button>';
+    click("switchWatch", () => {
+      const current = view.people.filter(
+        (p) =>
+          p.hp && (view.counts[view.seat] ? p.faction === view.seat : true),
+      );
+      track(
+        current[
+          (current.findIndex((p) => p.id === watchId) + 1) % current.length
+        ],
+      );
+      updateWatch(view);
+    });
+  }
+  $("#watchLoc").textContent = v
+    ? `FIELD CAMERA · ${symbols[v.faction]} ${factions[v.faction]} · near ${place[0]}`
+    : "FIELD CAMERA";
+  $("#watchLine").textContent = scene(v, s.people);
+  const results = $("#outcomes");
+  if (results) results.innerHTML = reportHTML(s);
+  const count = $("#liveCount");
+  if (count)
+    count.textContent = `${s.counts[s.seat]} of ${s.openingCount} still standing`;
+}
 let personalities = shuffle(demo.r, [...styles]).slice(0, 4);
 function msg(s) {
   notice = s;
@@ -77,6 +142,9 @@ function msg(s) {
 const note = () =>
   `<p id="note" class="error" role="status">${text(notice)}</p>`;
 function reset() {
+  document.body.classList.remove("playing");
+  $("#dispatch").hidden = true;
+  track(null);
   net?.close();
   net = null;
   game = null;
@@ -241,6 +309,7 @@ function start() {
   filmCache = null;
   replay = null;
   game = new Game(seed(), [...humans, ...remote], personalities);
+  game.untimedPlanning = mode === "solo";
   view = game.view(localSeat);
   sync();
 }
@@ -249,9 +318,11 @@ function refresh() {
   sync();
 }
 function sync() {
+  document.body.classList.add("playing");
   const k = view.turn + "-" + view.phase;
   if (k !== phaseKey) {
     phaseKey = k;
+    track(null);
     draft = blank();
     guess = [];
     passed.clear();
@@ -277,25 +348,40 @@ function sync() {
     lastKey = key;
     drawGame();
   }
-  status.innerHTML = `<b>TURN ${view.turn}/${T.lastTurn} · ${view.phase.toUpperCase()}</b><span>${Math.max(0, Math.ceil(view.left))}s &nbsp; Tension <meter min="0" max="100" value="${view.tension}"></meter> ${view.tension}%</span>`;
+  updateWatch(view);
+  status.innerHTML = `<b>TURN ${view.turn}/${T.lastTurn} · ${view.phase.toUpperCase()}</b><span>${mode === "solo" && view.phase === "Command" ? "Plan at your pace" : Math.max(0, Math.ceil(view.left)) + "s"} &nbsp; Tension <meter min="0" max="100" value="${view.tension}"></meter> ${view.tension}%</span>`;
   if (view.phase === "Simulation") {
     const events = view.events,
       latest = events.at(-1),
       id = view.turn + "-" + latest?.id;
     if (latest && id !== lastEvent) {
       lastEvent = id;
-      if (latest.score >= 5) board?.focus(latest);
       cue(latest.type);
     }
     const feed = $("#feed");
-    if (feed)
-      feed.textContent =
-        view.kills
-          .slice(-4)
-          .map((e) => e.text)
-          .join(" • ") ||
-        latest?.text ||
-        "The borough is quiet.";
+    if (feed && feed.dataset.latest !== id) {
+      feed.dataset.latest = id;
+      feed.innerHTML =
+        events
+          .slice(-3)
+          .reverse()
+          .map(
+            (e) =>
+              `<button class="bulletin" data-incident="${e.id}" title="Locate this incident"><small>⌖ ${Math.round(e.tick * T.dt)}s · ${text(e.type)}</small><br>${text(e.text)}</button>`,
+          )
+          .join("") || "No incidents reported yet.";
+      feed.onclick = ({ target }) => {
+        const button = target.closest("[data-incident]");
+        if (!button) return;
+        const event = view.events.find(
+          (e) => e.id === Number(button.dataset.incident),
+        );
+        if (!event) return;
+        if (view.people[event.actorId]?.hp) track(view.people[event.actorId]);
+        board?.focus(event);
+        updateWatch(view);
+      };
+    }
   }
   mix(view.tension);
 }
@@ -346,7 +432,7 @@ function drawGame() {
   if (s.phase === "Simulation") {
     panel.innerHTML =
       heading +
-      `<h2>Town in motion</h2><p>${s.turn >= T.suddenTurn ? "Tension rising. Every remaining faction is on edge." : "Watch the villagers. Select one to inspect it."}</p>${badges(s.counts)}${game ? `<h3>Playback</h3><div class="row">${T.speedSteps.map((n) => btn("s" + n, n + "×", game.speed === n)).join("")}</div>` : ""}<div class="feed"><small>INCIDENT WIRE</small><p id="feed"></p></div>`;
+      `<h2>On the ground</h2><p id="liveCount"></p><small>YOUR TURN ORDERS</small><div id="outcomes"></div>${game ? `<div class="row">${T.speedSteps.map((n) => btn("s" + n, n + "×", game.speed === n)).join("")}</div>` : ""}<div class="feed"><small>LATEST INCIDENTS</small><div id="feed"></div></div>`;
     for (const n of T.speedSteps)
       click("s" + n, () => {
         game.speed = n;
@@ -359,6 +445,12 @@ function drawGame() {
     panel.innerHTML =
       heading +
       `<h2>The evening edition</h2><p>Turn ${s.turn} · ${s.kills.length} villagers lost</p><div class="cards">${s.highlights.map((e, i) => btn("hl" + i, "▷ " + text(e.text))).join("")}</div>${!s.counts[s.seat] ? `<h3>Ghost vote</h3>${s.highlights.map((e, i) => btn("v" + i, (s.vote === e.id ? "✓ " : "") + "#" + (i + 1))).join(" ")}` : ""}<p>${s.votes} ghost votes</p>${game ? btn("next", "Open guesses", true) : ""}<details><summary>Kill list</summary>${s.kills.map((e) => text(e.text)).join("<br>") || "No deaths."}</details>`;
+    panel
+      .querySelector(".cards")
+      .insertAdjacentHTML(
+        "beforebegin",
+        `<small>YOUR TURN RESULT</small><p>${s.openingCount} → ${s.counts[s.seat]} living ${factions[s.seat]}.</p>${reportHTML(s)}<small>REPLAY A HEADLINE</small>`,
+      );
     if (mode === "hotseat") {
       const ghosts = humans.filter((i) => !s.counts[i]);
       if (ghosts.length) {
@@ -437,12 +529,85 @@ function editor(heading) {
   panel.innerHTML =
     heading +
     `<h2>${ghost ? "Ghost whisper" : "Secret orders"}</h2><p>${ghost ? "Send one free rumor." : `<b>${s.budget - spent} influence</b> left · ${draft.orders.length}/2 orders`}</p><div class="row">${ghost ? "" : btn("orderTab", "Orders")}${btn("rumorTab", "Rumor")}</div><div id="form"></div><div id="queue"></div><div class="btns">${btn("seal", "Seal & watch", true)}</div>${note()}`;
+  const rival = factions[(s.seat + 1) % 4];
+  if (!ghost && !draft.orders.length && !draft.rumor) {
+    const plans = [
+      [
+        "Rally at the Well",
+        "Follow",
+        "Well",
+        2,
+        "Watch your faction gather at one landmark.",
+      ],
+      [
+        `Turn against the ${rival}`,
+        "Hate",
+        rival,
+        3,
+        "Risk a fight when the two factions meet.",
+      ],
+      [
+        "Raid the Armory",
+        "Arm up",
+        "none",
+        1,
+        "Race for the town’s limited weapons.",
+      ],
+    ];
+    panel
+      .querySelector(".row")
+      .insertAdjacentHTML(
+        "beforebegin",
+        `<section class="plans"><small>PLAY A MOVE NOW</small>${plans.map(([title, , , cost, desc], i) => `<button id="plan${i}"><b>${title}</b><span>${desc} · ${cost} influence</span></button>`).join("")}</section><small>OR BUILD YOUR OWN</small>`,
+      );
+    plans.forEach(([, verb, target, strength], i) =>
+      click("plan" + i, () =>
+        send("orders", {
+          orders: [{ verb, target, s: strength }],
+          rumor: null,
+        }),
+      ),
+    );
+  }
+  panel
+    .querySelector("h2")
+    .insertAdjacentHTML(
+      "afterend",
+      `<p>Keep at least one ${factions[s.seat]} alive. If several factions survive turn nine, the largest wins.</p>`,
+    );
+  if (s.turn > 1)
+    panel
+      .querySelector(".row")
+      .insertAdjacentHTML(
+        "beforebegin",
+        `<details><summary>Town census · ${s.counts[s.seat]} living ${factions[s.seat]}</summary>${badges(s.counts)}</details>`,
+      );
+  if (s.lastGuess?.total)
+    panel
+      .querySelector("h2")
+      .insertAdjacentHTML(
+        "afterend",
+        `<div class="tag">Last guesses: ${s.lastGuess.correct}/${s.lastGuess.total} correct · +${s.lastGuess.correct} influence</div>`,
+      );
   function form(isRumor) {
     const choices = isRumor ? rumors : verbs;
     $("#form").innerHTML =
       `<label>Action<select id="verb">${options(choices)}</select></label><div class="row"><label>Target<select id="target"></select></label><label>Strength<select id="strength">${options(isRumor ? [1, 2] : [1, 2, 3])}</select></label></div>${btn("add", isRumor ? "Add whisper" : "Add order")}`;
-    const update = () =>
-      ($("#target").innerHTML = options(targets($("#verb").value)));
+    $("#form").insertAdjacentHTML("beforeend", "<p id='forecast'></p>");
+    const explain = () =>
+      ($("#forecast").textContent = preview(
+        $("#verb").value,
+        $("#target").value,
+      ));
+    const update = () => {
+      const choices = targets($("#verb").value);
+      $("#target").innerHTML = options(
+        choices,
+        choices.includes(rival) ? rival : choices[0],
+      );
+      explain();
+    };
+    $("#target").onchange = explain;
     $("#verb").onchange = update;
     update();
     click("add", () => {
@@ -491,6 +656,8 @@ function editor(heading) {
       editor(heading);
     }),
   );
+  if (!draft.orders.length && !draft.rumor)
+    $("#seal").textContent = "Pass this turn";
   click("seal", () => send("orders", structuredClone(draft)));
 }
 click(
@@ -511,6 +678,12 @@ function describe(v) {
       : "");
 }
 home();
+$("#town").addEventListener("click", () => {
+  if (view?.phase === "Simulation" && view.people[selected]?.hp) {
+    track(view.people[selected]);
+    updateWatch(view);
+  }
+});
 renderer((id) => {
   selected = id;
   describe((view?.people || demo.villagers)[id]);
@@ -572,7 +745,7 @@ function frame(now) {
       }));
     } else replay = null;
   }
-  board?.draw(people, dt);
+  board?.draw(people, dt, view?.phase === "Simulation" ? watchId : null);
   if (selected >= 0) describe(people[selected]);
   requestAnimationFrame(frame);
 }

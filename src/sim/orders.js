@@ -10,6 +10,7 @@ export function targets(verb) {
 export function begin(w) {
   w.turn++;
   w.events = [];
+  w.reportedScenes = new Set();
   w.time = 0;
   w.tick = 0;
   const count = living(w);
@@ -69,6 +70,7 @@ export function valid(w, seat, packet) {
 export function event(w, v, text, score, cause = null, type = "news") {
   const e = {
     id: w.events.length,
+    actorId: v.id,
     text,
     x: v.x,
     y: v.y,
@@ -94,6 +96,7 @@ function believe(w, v, r) {
   if (w.r() > p) return;
   r.spread.add(v.id);
   w.beliefs++;
+  r.believed = (r.believed || 0) + 1;
   let i = factions.indexOf(r.target);
   if (r.verb === "Peace talk")
     v.agg = clamp(v.agg - T.rumorShift * r.s, 0, 100);
@@ -182,10 +185,16 @@ export function apply(w, seat, packet) {
       };
       w.rumors.push(r);
       believe(w, v, r);
+      const stories = {
+        Accuse: `the ${r.target} poisoned the well`,
+        Praise: `the ${r.target} shared their supplies`,
+        Warn: `the ${r.target} are armed`,
+        "Peace talk": "the town should call a truce",
+      };
       event(
         w,
         v,
-        `A whisper near ${v.name}: ${r.verb.toLowerCase()} ${r.target === "none" ? "in the town" : r.target}.`,
+        `A rumor starts near ${v.name}: “${stories[r.verb]}.”`,
         3,
         seat,
         "rumor",

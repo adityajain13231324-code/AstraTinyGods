@@ -5,6 +5,28 @@ import { world, living } from "../src/sim/world.js";
 import { begin, valid, apply, bot } from "../src/sim/orders.js";
 import { styles, T } from "../src/config/tunables.js";
 import { finish } from "../src/sim/turn.js";
+test("rally reports measure distinct arrivals and stay private", () => {
+  const g = new Game(44, [0, 1, 2, 3], styles);
+  g.untimedPlanning = true;
+  g.advance(100);
+  assert.equal(g.phase, "Command");
+  assert.ok(
+    g.input(0, "orders", {
+      orders: [{ verb: "Follow", target: "Well", s: 2 }],
+    }),
+  );
+  for (const seat of [1, 2, 3]) g.input(seat, "orders", blank());
+  g.advance(0.1);
+  assert.equal(g.view(0).report[0].count, 0);
+  assert.deepEqual(g.view(1).report, []);
+  g.advance(40);
+  const owner = g.view(0),
+    guest = g.view(1);
+  assert.equal(owner.phase, "Recap");
+  assert.equal(owner.report[0].count, 12);
+  assert.ok(owner.highlights.some((e) => e.type === "arrival"));
+  assert.ok(guest.highlights.every((e) => !("cause" in e)));
+});
 test("trusted neutrals can join a faction at recap", () => {
   const w = world(19);
   begin(w);

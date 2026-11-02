@@ -277,3 +277,87 @@ meter {
     transform: none !important;
   }
 }
+.playing .mast {
+  display: none;
+}
+.playing #status {
+  padding: 16px 0;
+}
+#dispatch:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #233e30;
+  color: #faf2db;
+  padding: 12px 16px;
+}
+#dispatch small {
+  display: block;
+  color: #e8cf91;
+  font-size: 10px;
+}
+#dispatch strong {
+  display: block;
+  font: bold 18px/1.25 Georgia;
+  margin-top: 3px;
+}
+#dispatch button {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.results {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 14px;
+}
+.results li {
+  padding: 8px 10px;
+  border-left: 3px solid #ba9b5c;
+  background: #f1ead6;
+  margin: 4px 0;
+}
+.bulletin {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #dfd6bd;
+  border-radius: 0;
+  font: 15px/1.35 Georgia;
+  padding: 8px 0;
+}
+.results span,
+.plans span {
+  display: block;
+  font-size: 12px;
+  font-weight: normal;
+}
+.plans {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+.plans button {
+  text-align: left;
+  color: #263f2c;
+  background: #eaf0dd;
+  border-color: #99aa82;
+}
+.plans button:first-of-type {
+  background: #31563c;
+  color: white;
+}
+#forecast {
+  font: italic 14px/1.4 Georgia;
+  color: #53634c;
+}
+@media (max-width: 780px) {
+  #dispatch:not([hidden]) {
+    padding: 9px;
+  }
+  #dispatch strong {
+    font-size: 15px;
+  }
+}

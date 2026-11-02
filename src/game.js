@@ -2,6 +2,7 @@ import { world, living, shuffle } from "./sim/world.js";
 import { begin, valid, apply, bot } from "./sim/orders.js";
 import { step, finish, winner, score } from "./sim/turn.js";
 import { T, styles, factions } from "./config/tunables.js";
+import { matchesOrder, observation } from "./field-report.js";
 export const blank = () => ({ orders: [], rumor: null });
 export class Game {
   constructor(seed, seats, bots) {
@@ -15,6 +16,7 @@ export class Game {
     this.votes = {};
     this.clips = [];
     this.rounds = [];
+    this.lastGuesses = [];
     this.next();
   }
   phaseTo(name, seconds) {
@@ -24,6 +26,9 @@ export class Game {
   }
   next() {
     begin(this.w);
+    this.openingCounts = living(this.w);
+    this.reports = [[], [], [], []];
+    for (const v of this.w.villagers) v.startedUnarmed = v.weapon === "none";
     this.entries = new Map();
     this.answers = new Map();
     this.votes = {};
@@ -78,8 +83,14 @@ export class Game {
     this.rev++;
   }
   startSim() {
-    for (const i of shuffle(this.w.r, [0, 1, 2, 3]))
-      apply(this.w, i, this.entries.get(i) || blank());
+    for (const i of shuffle(this.w.r, [0, 1, 2, 3])) {
+      const packet = this.entries.get(i) || blank();
+      apply(this.w, i, packet);
+      this.reports[i] = packet.orders.map((order) => ({
+        order,
+        seen: new Set(),
+      }));
+    }
     this.phaseTo("Simulation", T.simSeconds);
     this.acc = 0;
   }
@@ -89,6 +100,16 @@ export class Game {
       this.acc += dt * this.speed;
       while (this.acc >= T.dt && this.w.time < T.simSeconds) {
         step(this.w);
+        if (this.w.tick % Math.round(T.think / T.dt) === 1) {
+          for (const v of this.w.villagers) {
+            for (const report of this.reports[v.faction] || [])
+              if (
+                !report.seen.has(v.id) &&
+                matchesOrder(v, this.w.villagers, report.order)
+              )
+                report.seen.add(v.id);
+          }
+        }
         this.acc -= T.dt;
         if (this.w.tick % 5 === 0)
           this.film.push({
@@ -122,7 +143,7 @@ export class Game {
       }
       return;
     }
-    this.left -= dt;
+    if (!(this.untimedPlanning && this.phase === "Command")) this.left -= dt;
     if (this.phase === "Command" && (this.left <= 0 || this.entries.size === 4))
       this.startSim();
     else if (this.phase === "Recap" && this.left <= 0)
@@ -146,7 +167,10 @@ export class Game {
             return rival[0]?.i ?? i;
           });
         }
-        score(this.w, i, answers);
+        this.lastGuesses[i] = {
+          correct: score(this.w, i, answers),
+          total: this.w.questions.length,
+        };
       }
       this.rounds.at(-1).votes = { ...this.votes };
       const win = winner(this.w);
@@ -169,6 +193,9 @@ export class Game {
       y: +v.y.toFixed(1),
       hp: Math.ceil(v.hp),
       state: v.state,
+      actionTarget: v.hp ? v.actionTarget : null,
+      actionPlace: v.hp ? v.actionPlace : null,
+      reason: v.hp ? v.reason : "",
       thought: v.thought,
       shape: v.shape,
       faction: v.faction,
@@ -185,7 +212,21 @@ export class Game {
       speed: this.speed,
       tension: w.tension,
       counts: c,
+      openingCount: this.openingCounts[i],
+      report: this.reports[i].map(({ order, seen }) => ({
+        order,
+        count: seen.size,
+        outcome: observation[order.verb],
+      })),
+      whisper: w.rumors
+        .filter((r) => r.seat === i && r.start === w.turn)
+        .map((r) => ({
+          verb: r.verb,
+          target: r.target,
+          believed: r.believed || 0,
+        }))[0],
       budget: w.budget[i],
+      lastGuess: this.lastGuesses[i],
       people,
       submitted: this.entries.has(i),
       guessed: this.answers.has(i),
