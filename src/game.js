@@ -1,39 +1,213 @@
-import {world,living,shuffle} from "./sim/world.js";
-import {begin,valid,apply,bot} from "./sim/orders.js";
-import {step,finish,winner,score} from "./sim/turn.js";
-import {T,styles,factions} from "./config/tunables.js";
-export const blank=()=>({orders:[],rumor:null});
-export class Game{
- constructor(seed,seats,bots){this.w=world(seed);this.humans=new Set(seats);this.bots=bots;this.speed=1;this.phase="";this.rev=0;this.acc=0;this.votes={};this.clips=[];this.rounds=[];this.next()}
- phaseTo(name,seconds){this.phase=name;this.left=seconds;this.rev++}
- next(){begin(this.w);this.entries=new Map();this.answers=new Map();this.votes={};this.film=[];this.clips=[];this.phaseTo("Command",T.commandSeconds);for(let i=0;i<4;i++)if(!this.humans.has(i))this.entries.set(i,bot(this.w,i,this.bots[i]))}
- input(i,kind,data){
-  if(!this.humans.has(i))return false;
-  if(kind==="orders"&&this.phase==="Command"&&!this.entries.has(i)&&valid(this.w,i,data)){this.entries.set(i,data);this.rev++;return true}
-  if(kind==="guess"&&this.phase==="Guess"&&!this.answers.has(i)&&Array.isArray(data)&&data.length===this.w.questions.length&&data.every(n=>Number.isInteger(n)&&n>=-1&&n<4)){this.answers.set(i,data);this.rev++;return true}
-  if(kind==="vote"&&this.phase==="Recap"&&!living(this.w)[i]&&Number.isInteger(data)&&this.w.highlights.some(e=>e.id===data)){this.votes[i]=data;this.rev++;return true}
-  return false;
- }
- disconnect(i){this.humans.delete(i);if(this.phase==="Command"&&!this.entries.has(i))this.entries.set(i,bot(this.w,i,this.bots[i]));this.rev++}
- startSim(){for(const i of shuffle(this.w.r,[0,1,2,3]))apply(this.w,i,this.entries.get(i)||blank());this.phaseTo("Simulation",T.simSeconds);this.acc=0}
- advance(dt){
-  if(this.phase==="End")return;
-  if(this.phase==="Simulation"){this.acc+=dt*this.speed;while(this.acc>=T.dt&&this.w.time<T.simSeconds){step(this.w);this.acc-=T.dt;if(this.w.tick%5===0)this.film.push({tick:this.w.tick,people:this.w.villagers.map(v=>[Math.round(v.x),Math.round(v.y),Math.ceil(v.hp),v.state,v.thought])})}this.left=T.simSeconds-this.w.time;
-   if(this.left<=0){finish(this.w);this.clips=this.w.highlights.map(e=>this.film.filter(f=>Math.abs(f.tick-e.tick)<=24));this.rounds.push({turn:this.w.turn,headline:this.w.highlights[0].text,kills:this.w.events.filter(e=>e.type==="kill").length});this.phaseTo("Recap",T.recapSeconds)}return;
+import { world, living, shuffle } from "./sim/world.js";
+import { begin, valid, apply, bot } from "./sim/orders.js";
+import { step, finish, winner, score } from "./sim/turn.js";
+import { T, styles, factions } from "./config/tunables.js";
+export const blank = () => ({ orders: [], rumor: null });
+export class Game {
+  constructor(seed, seats, bots) {
+    this.w = world(seed);
+    this.humans = new Set(seats);
+    this.bots = bots;
+    this.speed = 1;
+    this.phase = "";
+    this.rev = 0;
+    this.acc = 0;
+    this.votes = {};
+    this.clips = [];
+    this.rounds = [];
+    this.next();
   }
-  this.left-=dt;
-  if(this.phase==="Command"&&(this.left<=0||this.entries.size===4))this.startSim();
-  else if(this.phase==="Recap"&&this.left<=0)this.phaseTo("Guess",T.guessSeconds);
-  else if(this.phase==="Guess"&&(this.left<=0||[...this.humans].every(i=>this.answers.has(i))||!this.w.questions.length)){
-   for(let i=0;i<4;i++){let answers=this.answers.get(i)||[];if(!this.humans.has(i)){const c=living(this.w);answers=this.w.questions.map(e=>{const rival=c.slice(0,4).map((n,i)=>({i,n})).filter(o=>!e.text.includes(factions[o.i])).sort((a,b)=>b.n-a.n);return rival[0]?.i??i})}score(this.w,i,answers)}
-   const win=winner(this.w);if(win===null)this.next();else {this.win=win;this.phaseTo("End",0)}
+  phaseTo(name, seconds) {
+    this.phase = name;
+    this.left = seconds;
+    this.rev++;
   }
- }
- view(i,withClips=true){
-  const w=this.w,c=living(w),ghost=!c[i],publicEvent=({cause,...rest})=>rest;
-  const people=w.villagers.map(v=>({id:v.id,name:v.name,x:+v.x.toFixed(1),y:+v.y.toFixed(1),hp:Math.ceil(v.hp),state:v.state,thought:v.thought,shape:v.shape,faction:v.faction,weapon:v.weapon,traits:ghost||v.faction===i?v.traits:[],op:v.op.map(Math.round)}));
-  return {rev:this.rev,seat:i,turn:w.turn,left:this.left,phase:this.phase,speed:this.speed,tension:w.tension,counts:c,budget:w.budget[i],people,submitted:this.entries.has(i),guessed:this.answers.has(i),events:w.events.slice(-8).map(publicEvent),kills:w.events.filter(e=>e.type==="kill").map(publicEvent),
-   highlights:["Recap","Guess"].includes(this.phase)?w.highlights.map(publicEvent):[],questions:this.phase==="Guess"?w.questions.map(publicEvent):[],clips:this.phase==="Recap"&&withClips?this.clips:null,vote:this.votes[i],votes:Object.keys(this.votes).length,
-   end:this.phase==="End"?{win:this.win,history:w.history,rounds:this.rounds,points:w.points,beliefs:w.beliefs}:null};
- }
+  next() {
+    begin(this.w);
+    this.entries = new Map();
+    this.answers = new Map();
+    this.votes = {};
+    this.film = [];
+    this.clips = [];
+    this.phaseTo("Command", T.commandSeconds);
+    for (let i = 0; i < 4; i++)
+      if (!this.humans.has(i))
+        this.entries.set(i, bot(this.w, i, this.bots[i]));
+  }
+  input(i, kind, data) {
+    if (!this.humans.has(i)) return false;
+    if (
+      kind === "orders" &&
+      this.phase === "Command" &&
+      !this.entries.has(i) &&
+      valid(this.w, i, data)
+    ) {
+      this.entries.set(i, data);
+      this.rev++;
+      return true;
+    }
+    if (
+      kind === "guess" &&
+      this.phase === "Guess" &&
+      !this.answers.has(i) &&
+      Array.isArray(data) &&
+      data.length === this.w.questions.length &&
+      data.every((n) => Number.isInteger(n) && n >= -1 && n < 4)
+    ) {
+      this.answers.set(i, data);
+      this.rev++;
+      return true;
+    }
+    if (
+      kind === "vote" &&
+      this.phase === "Recap" &&
+      !living(this.w)[i] &&
+      Number.isInteger(data) &&
+      this.w.highlights.some((e) => e.id === data)
+    ) {
+      this.votes[i] = data;
+      this.rev++;
+      return true;
+    }
+    return false;
+  }
+  disconnect(i) {
+    this.humans.delete(i);
+    if (this.phase === "Command" && !this.entries.has(i))
+      this.entries.set(i, bot(this.w, i, this.bots[i]));
+    this.rev++;
+  }
+  startSim() {
+    for (const i of shuffle(this.w.r, [0, 1, 2, 3]))
+      apply(this.w, i, this.entries.get(i) || blank());
+    this.phaseTo("Simulation", T.simSeconds);
+    this.acc = 0;
+  }
+  advance(dt) {
+    if (this.phase === "End") return;
+    if (this.phase === "Simulation") {
+      this.acc += dt * this.speed;
+      while (this.acc >= T.dt && this.w.time < T.simSeconds) {
+        step(this.w);
+        this.acc -= T.dt;
+        if (this.w.tick % 5 === 0)
+          this.film.push({
+            tick: this.w.tick,
+            people: this.w.villagers.map((v) => [
+              Math.round(v.x),
+              Math.round(v.y),
+              Math.ceil(v.hp),
+              v.state,
+              v.thought,
+            ]),
+          });
+      }
+      this.left = T.simSeconds - this.w.time;
+      if (this.left <= 0) {
+        finish(this.w);
+        this.clips = this.w.highlights.map((e) =>
+          this.film.filter((f) => Math.abs(f.tick - e.tick) <= 24),
+        );
+        this.rounds.push({
+          turn: this.w.turn,
+          headline: this.w.highlights[0].text,
+          highlights: this.w.highlights.map((e) => ({
+            id: e.id,
+            text: e.text,
+            cause: e.cause,
+          })),
+          kills: this.w.events.filter((e) => e.type === "kill").length,
+        });
+        this.phaseTo("Recap", T.recapSeconds);
+      }
+      return;
+    }
+    this.left -= dt;
+    if (this.phase === "Command" && (this.left <= 0 || this.entries.size === 4))
+      this.startSim();
+    else if (this.phase === "Recap" && this.left <= 0)
+      this.phaseTo("Guess", T.guessSeconds);
+    else if (
+      this.phase === "Guess" &&
+      (this.left <= 0 ||
+        [...this.humans].every((i) => this.answers.has(i)) ||
+        !this.w.questions.length)
+    ) {
+      for (let i = 0; i < 4; i++) {
+        let answers = this.answers.get(i) || [];
+        if (!this.humans.has(i)) {
+          const c = living(this.w);
+          answers = this.w.questions.map((e) => {
+            const rival = c
+              .slice(0, 4)
+              .map((n, i) => ({ i, n }))
+              .filter((o) => !e.text.includes(factions[o.i]))
+              .sort((a, b) => b.n - a.n);
+            return rival[0]?.i ?? i;
+          });
+        }
+        score(this.w, i, answers);
+      }
+      this.rounds.at(-1).votes = { ...this.votes };
+      const win = winner(this.w);
+      if (win === null) this.next();
+      else {
+        this.win = win;
+        this.phaseTo("End", 0);
+      }
+    }
+  }
+  view(i, withClips = true) {
+    const w = this.w,
+      c = living(w),
+      ghost = !c[i],
+      publicEvent = ({ cause, ...rest }) => rest;
+    const people = w.villagers.map((v) => ({
+      id: v.id,
+      name: v.name,
+      x: +v.x.toFixed(1),
+      y: +v.y.toFixed(1),
+      hp: Math.ceil(v.hp),
+      state: v.state,
+      thought: v.thought,
+      shape: v.shape,
+      faction: v.faction,
+      weapon: v.weapon,
+      traits: ghost || v.faction === i ? v.traits : [],
+      op: v.op.map(Math.round),
+    }));
+    return {
+      rev: this.rev,
+      seat: i,
+      turn: w.turn,
+      left: this.left,
+      phase: this.phase,
+      speed: this.speed,
+      tension: w.tension,
+      counts: c,
+      budget: w.budget[i],
+      people,
+      submitted: this.entries.has(i),
+      guessed: this.answers.has(i),
+      events: w.events.slice(-8).map(publicEvent),
+      kills: w.events.filter((e) => e.type === "kill").map(publicEvent),
+      highlights: ["Recap", "Guess"].includes(this.phase)
+        ? w.highlights.map(publicEvent)
+        : [],
+      questions: this.phase === "Guess" ? w.questions.map(publicEvent) : [],
+      clips: this.phase === "Recap" && withClips ? this.clips : null,
+      vote: this.votes[i],
+      votes: Object.keys(this.votes).length,
+      end:
+        this.phase === "End"
+          ? {
+              win: this.win,
+              history: w.history,
+              rounds: this.rounds,
+              points: w.points,
+              beliefs: w.beliefs,
+            }
+          : null,
+    };
+  }
 }
